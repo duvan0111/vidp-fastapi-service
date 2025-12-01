@@ -4,12 +4,14 @@ Endpoints pour la gestion des vidéos - Upload et statut.
 import uuid
 from datetime import datetime
 from typing import List
+from pathlib import Path
 from fastapi import APIRouter, File, UploadFile, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 from app.models.video_model import VideoUploadResponse, VideoStatus, VideoMetadata, ErrorResponse
 from app.services.file_storage import FileStorageService
 from app.db.mongodb_connector import mongodb_connector
+from app.core.config import settings
 
 # Création du router pour les endpoints vidéo
 router = APIRouter(prefix="/videos", tags=["videos"])
@@ -247,3 +249,56 @@ async def update_video_status(video_id: str, new_status: VideoStatus):
         "video_id": video_id,
         "new_status": new_status.value
     }
+
+
+@router.get(
+    "/stream/{video_id}",
+    summary="Lire une vidéo",
+    description="Permet de lire une vidéo en streaming."
+)
+async def stream_video(video_id: str):
+    """
+    Endpoint pour streamer une vidéo.
+    
+    Args:
+        video_id: Identifiant unique de la vidéo
+        
+    Returns:
+        FileResponse: Fichier vidéo
+        
+    Raises:
+        HTTPException: Si la vidéo n'est pas trouvée
+    """
+    # Récupérer les métadonnées pour obtenir le chemin du fichier
+    if mongodb_connector.client:
+        metadata = await mongodb_connector.get_video_metadata(video_id)
+        if metadata:
+            file_path = Path(metadata.file_path)
+            if file_path.exists():
+                return FileResponse(
+                    path=str(file_path),
+                    media_type=metadata.content_type,
+                    filename=metadata.original_filename
+                )
+    
+    # Fallback: chercher directement dans le dossier de stockage
+    video_path = Path(settings.local_video_path) / f"{video_id}.mp4"
+    if not video_path.exists():
+        # Essayer d'autres extensions
+        for ext in ['.avi', '.mov', '.mkv']:
+            alt_path = Path(settings.local_video_path) / f"{video_id}{ext}"
+            if alt_path.exists():
+                video_path = alt_path
+                break
+    
+    if not video_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Fichier vidéo {video_id} non trouvé"
+        )
+    
+    return FileResponse(
+        path=str(video_path),
+        media_type="video/mp4",
+        filename=video_path.name
+    )
