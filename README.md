@@ -80,6 +80,9 @@ L'API sera disponible sur : `http://localhost:8000`
 | `GET` | `/` | Informations de base sur l'API |
 | `GET` | `/health` | Santé générale de l'API |
 | `POST` | `/api/v1/videos/upload` | **Upload de vidéo** |
+| `GET` | `/api/v1/videos/` | Liste toutes les vidéos |
+| `GET` | `/api/v1/videos/{video_id}` | Récupère une vidéo spécifique |
+| `PUT` | `/api/v1/videos/{video_id}/status` | Met à jour le statut d'une vidéo |
 | `GET` | `/api/v1/videos/health` | Santé du service vidéo |
 | `GET` | `/api/v1/videos/stats` | Statistiques de stockage |
 | `GET` | `/api/v1/status/health` | Santé globale du système |
@@ -154,12 +157,89 @@ curl -X GET "http://localhost:8000/api/v1/videos/stats"
 | `LOCAL_VIDEO_PATH` | Dossier des vidéos | `./local_storage/videos` |
 | `CORS_ORIGINS` | Origins CORS autorisées | `["http://localhost:3000"]` |
 
-## 🔮 Fonctionnalités futures
+## 💾 MongoDB - Stockage des métadonnées
 
-### MongoDB (en préparation)
-- Stockage des métadonnées vidéo
-- Gestion des statuts de traitement
-- Historique des uploads
+### Installation de MongoDB
+
+#### Option 1 : Avec Docker Compose (recommandé)
+```bash
+# Démarrer MongoDB
+docker-compose up -d
+
+# Vérifier l'état
+docker-compose ps
+
+# Arrêter MongoDB
+docker-compose down
+```
+
+#### Option 2 : Avec le script fourni
+```bash
+# Rendre le script exécutable
+chmod +x start_mongodb.sh
+
+# Démarrer MongoDB
+./start_mongodb.sh
+```
+
+#### Option 3 : Installation locale
+Suivez la documentation officielle MongoDB : https://docs.mongodb.com/manual/installation/
+
+### Configuration MongoDB
+
+Les variables d'environnement MongoDB sont définies dans `.env` :
+```env
+MONGODB_URL=mongodb://localhost:27017
+MONGODB_DATABASE=vidp_db
+```
+
+### Endpoints MongoDB
+
+| Méthode | Endpoint | Description |
+|---------|----------|-------------|
+| `GET` | `/api/v1/videos/` | Liste toutes les vidéos avec métadonnées |
+| `GET` | `/api/v1/videos/{video_id}` | Récupère les métadonnées d'une vidéo |
+| `PUT` | `/api/v1/videos/{video_id}/status` | Met à jour le statut d'une vidéo |
+
+### Test de l'intégration MongoDB
+
+```bash
+# Lancer les tests MongoDB
+python3 test_mongodb.py
+```
+
+### Exemple d'utilisation
+
+#### Récupérer toutes les vidéos
+```bash
+curl -X GET "http://localhost:8000/api/v1/videos/"
+```
+
+#### Récupérer une vidéo spécifique
+```bash
+curl -X GET "http://localhost:8000/api/v1/videos/{video_id}"
+```
+
+#### Mettre à jour le statut
+```bash
+curl -X PUT "http://localhost:8000/api/v1/videos/{video_id}/status?new_status=processing"
+```
+
+### Métadonnées stockées
+
+Pour chaque vidéo uploadée, MongoDB stocke :
+- `video_id` : Identifiant unique
+- `original_filename` : Nom du fichier original
+- `file_path` : Chemin de stockage local
+- `file_size` : Taille en octets
+- `content_type` : Type MIME
+- `status` : Statut actuel (uploaded, processing, completed, failed)
+- `upload_time` : Date et heure d'upload
+- `processing_start_time` : Début du traitement (optionnel)
+- `processing_end_time` : Fin du traitement (optionnel)
+- `error_message` : Message d'erreur (optionnel)
+
+## 🔮 Fonctionnalités futures
 
 ### Kubernetes (en préparation)
 - Orchestration des jobs de traitement

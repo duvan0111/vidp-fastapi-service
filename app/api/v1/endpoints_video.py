@@ -2,11 +2,14 @@
 Endpoints pour la gestion des vidéos - Upload et statut.
 """
 import uuid
+from datetime import datetime
+from typing import List
 from fastapi import APIRouter, File, UploadFile, HTTPException, status
 from fastapi.responses import JSONResponse
 
-from app.models.video_model import VideoUploadResponse, VideoStatus, ErrorResponse
+from app.models.video_model import VideoUploadResponse, VideoStatus, VideoMetadata, ErrorResponse
 from app.services.file_storage import FileStorageService
+from app.db.mongodb_connector import mongodb_connector
 
 # Création du router pour les endpoints vidéo
 router = APIRouter(prefix="/videos", tags=["videos"])
@@ -39,6 +42,22 @@ async def upload_video(file: UploadFile = File(..., description="Fichier vidéo 
         # Sauvegarde du fichier via le service de stockage
         unique_filename, full_path, file_size = await FileStorageService.save_video_file(file)
         
+        # Création des métadonnées
+        upload_time = datetime.now()
+        metadata = VideoMetadata(
+            video_id=video_id,
+            original_filename=file.filename,
+            file_path=full_path,
+            file_size=file_size,
+            content_type=file.content_type,
+            status=VideoStatus.UPLOADED,
+            upload_time=upload_time
+        )
+        
+        # Sauvegarde dans MongoDB (si disponible)
+        if mongodb_connector.client:
+            await mongodb_connector.save_video_metadata(metadata)
+        
         # Création de la réponse
         response = VideoUploadResponse(
             video_id=video_id,
@@ -47,6 +66,7 @@ async def upload_video(file: UploadFile = File(..., description="Fichier vidéo 
             file_size=file_size,
             content_type=file.content_type,
             status=VideoStatus.UPLOADED,
+            upload_time=upload_time,
             message=f"Vidéo '{file.filename}' uploadée avec succès"
         )
         
@@ -125,3 +145,105 @@ async def get_storage_stats():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erreur lors de la récupération des statistiques: {str(e)}"
         )
+
+
+@router.get(
+    "/{video_id}",
+    response_model=VideoMetadata,
+    summary="Récupérer les métadonnées d'une vidéo",
+    description="Récupère les métadonnées d'une vidéo spécifique depuis MongoDB."
+)
+async def get_video_metadata(video_id: str):
+    """
+    Endpoint pour récupérer les métadonnées d'une vidéo.
+    
+    Args:
+        video_id: Identifiant unique de la vidéo
+        
+    Returns:
+        VideoMetadata: Métadonnées de la vidéo
+        
+    Raises:
+        HTTPException: Si la vidéo n'est pas trouvée ou MongoDB non disponible
+    """
+    if not mongodb_connector.client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB n'est pas disponible"
+        )
+    
+    metadata = await mongodb_connector.get_video_metadata(video_id)
+    
+    if not metadata:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Vidéo avec l'ID {video_id} non trouvée"
+        )
+    
+    return metadata
+
+
+@router.get(
+    "/",
+    response_model=List[VideoMetadata],
+    summary="Liste toutes les vidéos",
+    description="Récupère la liste de toutes les vidéos avec leurs métadonnées depuis MongoDB."
+)
+async def list_all_videos():
+    """
+    Endpoint pour lister toutes les vidéos.
+    
+    Returns:
+        List[VideoMetadata]: Liste des métadonnées de toutes les vidéos
+        
+    Raises:
+        HTTPException: Si MongoDB n'est pas disponible
+    """
+    if not mongodb_connector.client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB n'est pas disponible"
+        )
+    
+    videos = await mongodb_connector.list_all_videos()
+    return videos
+
+
+@router.put(
+    "/{video_id}/status",
+    summary="Mettre à jour le statut d'une vidéo",
+    description="Met à jour le statut de traitement d'une vidéo dans MongoDB."
+)
+async def update_video_status(video_id: str, new_status: VideoStatus):
+    """
+    Endpoint pour mettre à jour le statut d'une vidéo.
+    
+    Args:
+        video_id: Identifiant unique de la vidéo
+        new_status: Nouveau statut de la vidéo
+        
+    Returns:
+        Dict: Message de confirmation
+        
+    Raises:
+        HTTPException: Si la vidéo n'est pas trouvée ou MongoDB non disponible
+    """
+    if not mongodb_connector.client:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MongoDB n'est pas disponible"
+        )
+    
+    success = await mongodb_connector.update_video_status(video_id, new_status.value)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Vidéo avec l'ID {video_id} non trouvée ou mise à jour échouée"
+        )
+    
+    return {
+        "message": f"Statut de la vidéo {video_id} mis à jour à {new_status.value}",
+        "video_id": video_id,
+        "new_status": new_status.value
+    }

@@ -56,12 +56,15 @@ class MongoDBConnector:
             bool: True si la sauvegarde est réussie
         """
         try:
-            if not self.collection:
+            if self.collection is None:
                 return False
             
-            await self.collection.insert_one(metadata.dict())
+            # Convertir en dict et gérer les dates
+            metadata_dict = metadata.model_dump()
+            await self.collection.insert_one(metadata_dict)
             return True
-        except Exception:
+        except Exception as e:
+            print(f"Erreur lors de la sauvegarde des métadonnées: {e}")
             return False
     
     async def get_video_metadata(self, video_id: str) -> Optional[VideoMetadata]:
@@ -75,14 +78,17 @@ class MongoDBConnector:
             VideoMetadata ou None si non trouvé
         """
         try:
-            if not self.collection:
+            if self.collection is None:
                 return None
             
             doc = await self.collection.find_one({"video_id": video_id})
             if doc:
+                # Supprimer le champ _id de MongoDB pour éviter les problèmes de sérialisation
+                doc.pop('_id', None)
                 return VideoMetadata(**doc)
             return None
-        except Exception:
+        except Exception as e:
+            print(f"Erreur lors de la récupération des métadonnées: {e}")
             return None
     
     async def update_video_status(self, video_id: str, new_status: str) -> bool:
@@ -97,7 +103,7 @@ class MongoDBConnector:
             bool: True si la mise à jour est réussie
         """
         try:
-            if not self.collection:
+            if self.collection is None:
                 return False
             
             result = await self.collection.update_one(
@@ -116,15 +122,18 @@ class MongoDBConnector:
             List[VideoMetadata]: Liste des métadonnées
         """
         try:
-            if not self.collection:
+            if self.collection is None:
                 return []
             
-            cursor = self.collection.find({})
+            cursor = self.collection.find({}).sort("upload_time", -1)  # Tri par date décroissante
             videos = []
             async for doc in cursor:
+                # Supprimer le champ _id de MongoDB
+                doc.pop('_id', None)
                 videos.append(VideoMetadata(**doc))
             return videos
-        except Exception:
+        except Exception as e:
+            print(f"Erreur lors de la liste des vidéos: {e}")
             return []
 
 
